@@ -4,6 +4,7 @@ import argparse
 import os
 import random
 import logging
+from scipy import misc
 
 import tensorflow as tf
 import numpy as np
@@ -11,6 +12,7 @@ from PIL import Image
 
 from unet import UNet, Discriminator
 from scripts.image_manips import resize
+import cv2
 
 model_name = "matting"
 
@@ -25,7 +27,7 @@ def parse_args():
         help="Learning rate used to optimize")
     parser.add_argument("--d_coeff", type=float, default=1.0,
         help="Discriminator loss coefficient")
-    parser.add_argument("--gen_epoch", type=int, default=4,
+    parser.add_argument("--gen_epoch", type=int, default=50,
         help="Number of training epochs")
     parser.add_argument("--disc_epoch", type=int, default=1,
         help="Number of training epochs")
@@ -51,11 +53,11 @@ def apply_trimap(images, output, alpha):
     return masked_output
 
 def main(args):
-    input_path = os.path.join(args.data, "input")
-    trimap_path = os.path.join(args.data, "trimap")
-    target_path = os.path.join(args.data, "target")
+    input_path = os.path.join(args.data, "original")
+    trimap_path = os.path.join(args.data, "original_depth")
+    target_path = os.path.join(args.data, "bokeh")
     output_path = os.path.join(args.data, "output")
-
+    print('input_path '+input_path)
     train_data_update_freq = args.batch_size
     test_data_update_freq = 50*args.batch_size
     sess_save_freq = 100*args.batch_size
@@ -78,11 +80,13 @@ def main(args):
     d_iter = int(args.disc_epoch * int(train_ids.shape[0]))
     a_iter = int(args.adv_epoch * int(train_ids.shape[0]))
     n_iter = g_iter+d_iter+a_iter
+    print('n_iter ' + str(n_iter))
 
 
-    input_images = tf.placeholder(tf.float32, shape=[None, 480, 360, 4])
-    target_images = tf.placeholder(tf.float32, shape=[None, 480, 360, 4])
-    alpha = target_images[:,:,:,3][..., np.newaxis]
+    input_images = tf.placeholder(tf.float32, shape=[198, 480, 360, 4])
+    target_images = tf.placeholder(tf.float32, shape=[198, 480, 360, 4])
+    
+    #alpha = target_images[:,:,:,3][..., np.newaxis]
 
     with tf.variable_scope("Gen"):
         gen = UNet(4,4)
@@ -124,7 +128,7 @@ def main(args):
             saver.restore(sess, tf.train.latest_checkpoint(args.logdir))
         else:#Specified checkpoint
             saver.restore(sess, os.path.join(args.logdir, model_name+".ckpt-"+str(args.checkpoint)))
-        logging.debug('Model restored to step ' + str(global_step.eval(sess)))
+        print('Model restored to step ' + str(global_step.eval(sess)))
 
 
     train_ids = list(train_ids.eval(sess))
@@ -132,27 +136,46 @@ def main(args):
 
     def load_batch(batch_ids):
         images, targets = [], []
-        for i, j in batch_ids:
-            input_filename = os.path.join(input_path, str(i) + '_' + str(j) + '.jpg')
-            trimap_filename = os.path.join(trimap_path, str(i) + '_trimap.jpg')
-            target_filename = os.path.join(target_path, str(i) + '.png')
-            logging.debug(input_filename)
-            logging.debug(trimap_filename)
-            logging.debug(target_filename)
-            image = resize(Image.open(input_filename), 2)
-            trimap = resize(Image.open(trimap_filename), 2)
-            target = resize(Image.open(target_filename), 2)
+        test_data = np.zeros((198, 480, 360, 4))
+        test_answ = np.zeros((198, int(480 * 1), int(360 * 1), 4))
+        i = 0
+        for names in os.listdir(input_path):
 
-            image = np.array(image)
-            trimap = np.array(trimap)[..., np.newaxis]
-            image = np.concatenate((image, trimap), axis = 2).astype(np.float32) / 255
+            name = os.path.basename(names.split(".")[0])
+            input_filename = os.path.join(input_path, names)
+            trimap_filename = os.path.join(trimap_path, name + '.png')
+            target_filename = os.path.join(target_path, name + '.png')
+            I = misc.imread(input_filename)
+            I_depth = misc.imread(trimap_filename)
+            print('namemmmm: '+name+ " num "+str(i))
 
-            target = np.array(target).astype(np.float32) / 255
+            I = cv2.resize(I, (360, 480));
+            I_depth = cv2.resize(I_depth, (360, 480));
+            # Stacking the image together with its depth map
+            I_temp = np.zeros((I.shape[0], I.shape[1], 4))
+            I_temp[:, :, 0:3] = I
+            I_temp[:, :, 3] = I_depth
+            I = I_temp
 
-            images.append(image)
-            targets.append(target)
+           
+            # Extracting random patch of width PATCH_WIDTH
+           
+            I = np.float32(I) / 255.0
 
-        return np.asarray(images), np.asarray(targets)
+            test_data[i, :] = I
+
+            I = misc.imread(target_filename)
+            I = cv2.resize(I, (int(360), int(480)));
+            I_temp = np.zeros((I.shape[0], I.shape[1], 4))
+            I_temp[:, :, 0:3] = I
+            I_temp[:, :, 3] = I_depth
+            I = I_temp
+            I = np.float32(I) / 255.0
+
+            test_answ[i, :] = I
+            i = i + 1
+
+        return test_data, test_answ
 
 
     def test_step(batch_idx, summary_fct):
@@ -168,55 +191,55 @@ def main(args):
         test_writer.add_summary(summary, batch_idx)
         test_writer.add_summary(demo, batch_idx)
 
-        logging.info('Validation Loss: {:.8f}'.format(loss))
+        print('Validation Loss: {:.8f}'.format(loss))
 
-    try:
-        batch_idx = 0
-        while batch_idx < n_iter:
-            batch_idx = global_step.eval(sess) * args.batch_size
+    batch_idx = 0
+    while batch_idx < n_iter:
+        batch_idx = global_step.eval(sess) * args.batch_size
+        print('batch_idx' + str(batch_idx))
 
-            loss_fct = None
-            label = None
-            optimizers = []
-            if batch_idx < g_iter:
-                loss_fct = g_loss
-                summary_fct = g_loss_summary
-                label = 'Gen train'
-                optimizers = [g_optimizer]
-            elif batch_idx < g_iter+d_iter:
-                loss_fct = d_loss
-                summary_fct = d_loss_summary
-                label = 'Disc train'
-                optimizers = [d_optimizer]
-            else:
-                loss_fct = a_loss
-                summary_fct = summary_op
-                label = 'Adv train'
-                optimizers = [a_optimizer]
+        loss_fct = None
+        label = None
+        optimizers = []
+        if batch_idx < g_iter:
+            print('Gen train')
+            loss_fct = g_loss
+            summary_fct = g_loss_summary
+            label = 'Gen train'
+            optimizers = [g_optimizer]
+        elif batch_idx < g_iter+d_iter:
+            loss_fct = d_loss
+            summary_fct = d_loss_summary
+            label = 'Disc train'
+            optimizers = [d_optimizer]
+            print('Disc train')
+        else:
+            loss_fct = a_loss
+            summary_fct = summary_op
+            label = 'Adv train'
+            optimizers = [a_optimizer]
+            print('Adv train')
 
-            batch_range = random.sample(train_ids, args.batch_size)
-            images, targets = load_batch(batch_range)
+        batch_range = random.sample(train_ids, args.batch_size)
+        images, targets = load_batch(batch_range)
+        print('load batch done')
+        loss, summary = sess.run([loss_fct, summary_fct] +  optimizers, feed_dict={
+            input_images: images,
+            target_images: targets})
+        print('load batch done 1')
+        if batch_idx % train_data_update_freq == 0:
+            print('{}: [{}/{} ({:.0f}%)]\tGen Loss: {:.8f}'.format(label, batch_idx, n_iter,
+                100. * (batch_idx+1) / n_iter, loss))
+            print('load batch done 2')
+            train_writer.add_summary(summary, batch_idx)
 
-            loss, summary = sess.run([loss_fct, summary_fct] +  optimizers, feed_dict={
-                input_images: np.array(images),
-                target_images: np.array(targets)})[0:2]
+        if batch_idx % test_data_update_freq == 0:
+            print('load batch done 3')
+            test_step(batch_idx, summary_fct)
 
-            if batch_idx % train_data_update_freq == 0:
-                logging.info('{}: [{}/{} ({:.0f}%)]\tGen Loss: {:.8f}'.format(label, batch_idx, n_iter,
-                    100. * (batch_idx+1) / n_iter, loss))
-
-                train_writer.add_summary(summary, batch_idx)
-
-            if batch_idx % test_data_update_freq == 0:
-                test_step(batch_idx, summary_fct)
-
-            if batch_idx % sess_save_freq == 0:
-                logging.debug('Saving model')
-                saver.save(sess, os.path.join(args.logdir, model_name+".ckpt"), global_step=batch_idx)
-
-    except Exception:
-        saver.save(sess, os.path.join(args.logdir, 'crash_save_'+model_name+".ckpt"), global_step=batch_idx)
-
+        if batch_idx % sess_save_freq == 0:
+            print('Saving model')
+            saver.save(sess, os.path.join(args.logdir, model_name+".ckpt"), global_step=batch_idx)
 
     saver.save(sess, os.path.join(args.logdir, model_name+".ckpt"), global_step=batch_idx)
 

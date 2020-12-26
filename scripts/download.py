@@ -15,7 +15,7 @@ def dowload_matting_dataset(output_dir):
         "size": "medium",
         "limit": 500,
         "output_directory": output_dir,
-        "chromedriver": "/usr/local/bin/chromedriver"})
+        "chromedriver": "/Users/hiepth/Downloads/chromedriver-2"})
 
     response = google_images_download.googleimagesdownload()
     response.download({
@@ -24,7 +24,7 @@ def dowload_matting_dataset(output_dir):
         "size": "medium",
         "limit": 500,
         "output_directory": output_dir,
-        "chromedriver": "/usr/local/bin/chromedriver"})
+        "chromedriver": "/Users/hiepth/Downloads/chromedriver-2"})
 
 if __name__ == "__main__":
     output_dir = os.path.join("data", "matting")
