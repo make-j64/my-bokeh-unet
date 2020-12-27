@@ -6,6 +6,7 @@ import random
 import logging
 import cv2
 import math
+from scipy import misc
 
 import tensorflow as tf
 import numpy as np
@@ -93,7 +94,7 @@ def main(args):
     input_images = tf.placeholder(tf.float32, shape=[1, 480, 360, 4])
 
     with tf.variable_scope("Gen"):
-        gen = UNet(4,4)
+        gen = UNet(4,3)
         output = tf.sigmoid(gen(input_images))
 
     global_step = tf.get_variable('global_step', initializer=0, trainable=False)
@@ -113,24 +114,29 @@ def main(args):
 
     images, targets = [], []
 
-    input_filename = args.input
-    image = load_image(input_filename)
-    print(image.shape)
-    trimap = generate_trimap(args.object)
+    I = misc.imread('/Users/hiepth/Desktop/Data_Bokeh/ebb_dataset/train/original/000000009950.jpg')
+    I_depth = misc.imread('/Users/hiepth/Desktop/Data_Bokeh/ebb_dataset/train/original_depth/000000009950.png')
+    #print('namemmmm: '+name+ " num "+str(i))
 
-    image = np.array(image)
-    trimap = np.array(trimap)[..., np.newaxis]
-    print(image.shape)
-    print(trimap.shape)
-    image = np.concatenate((image, trimap), axis = 2).astype(np.float32) / 255
+    I = cv2.resize(I, (360, 480));
+    I_depth = cv2.resize(I_depth, (360, 480));
+    # Stacking the image together with its depth map
+    I_temp = np.zeros((I.shape[0], I.shape[1], 4))
+    I_temp[:, :, 0:3] = I
+    I_temp[:, :, 3] = I_depth
+    I = I_temp
 
+
+    # Extracting random patch of width PATCH_WIDTH
+
+    I = np.float32(I) / 255.0
     result = sess.run(output, feed_dict={
-            input_images: np.asarray([image]),
+            input_images: np.asarray([I]),
             })
 
     print(result.shape)
     image = Image.fromarray((result[0,:,:,:]*255).astype(np.uint8))
-    image.save(args.output)
+    image.save('output_1600.jpg')
 
 
 if __name__ == '__main__':

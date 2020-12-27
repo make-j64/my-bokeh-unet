@@ -15,6 +15,7 @@ from scripts.image_manips import resize
 import cv2
 
 model_name = "matting"
+TRAIN_IMAGES = 50
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,11 +28,11 @@ def parse_args():
         help="Learning rate used to optimize")
     parser.add_argument("--d_coeff", type=float, default=1.0,
         help="Discriminator loss coefficient")
-    parser.add_argument("--gen_epoch", type=int, default=50,
+    parser.add_argument("--gen_epoch", type=int, default=40,
         help="Number of training epochs")
-    parser.add_argument("--disc_epoch", type=int, default=1,
+    parser.add_argument("--disc_epoch", type=int, default=10,
         help="Number of training epochs")
-    parser.add_argument("--adv_epoch", type=int, default=5,
+    parser.add_argument("--adv_epoch", type=int, default=50,
         help="Number of training epochs")
     parser.add_argument("--batch_size", dest="batch_size", type=int, default=4,
         help="Size of the batches used in training")
@@ -69,6 +70,7 @@ def main(args):
         os.makedirs(args.logdir)
 
     ids = [[int(i) for i in os.path.splitext(filename)[0].split('_')] for filename in os.listdir(input_path)]
+    print("numimage "+str(len(ids)))
     np.random.shuffle(ids)
     split_point = int(round(0.85*len(ids))) #using 70% as training and 30% as Validation
     train_ids = tf.get_variable('train_ids', initializer=ids[0:split_point], trainable=False)
@@ -82,14 +84,13 @@ def main(args):
     n_iter = g_iter+d_iter+a_iter
     print('n_iter ' + str(n_iter))
 
-
-    input_images = tf.placeholder(tf.float32, shape=[198, 480, 360, 4])
-    target_images = tf.placeholder(tf.float32, shape=[198, 480, 360, 4])
+    input_images = tf.placeholder(tf.float32, shape=[TRAIN_IMAGES, 480, 360, 4])
+    target_images = tf.placeholder(tf.float32, shape=[TRAIN_IMAGES, 480, 360, 3])
     
     #alpha = target_images[:,:,:,3][..., np.newaxis]
 
     with tf.variable_scope("Gen"):
-        gen = UNet(4,4)
+        gen = UNet(4,3)
         output = tf.sigmoid(gen(input_images))
         g_loss = tf.losses.mean_squared_error(target_images, output)
     with tf.variable_scope("Disc"):
@@ -136,44 +137,44 @@ def main(args):
 
     def load_batch(batch_ids):
         images, targets = [], []
-        test_data = np.zeros((198, 480, 360, 4))
-        test_answ = np.zeros((198, int(480 * 1), int(360 * 1), 4))
+        test_data = np.zeros((TRAIN_IMAGES, 480, 360, 4))
+        test_answ = np.zeros((TRAIN_IMAGES, int(480 * 1), int(360 * 1), 3))
         i = 0
         for names in os.listdir(input_path):
+            if i < TRAIN_IMAGES:
+                random_file = random.choice(os.listdir(input_path))
+                name = os.path.basename(random_file.split(".")[0])
+                input_filename = os.path.join(input_path, name + '.jpg')
+                trimap_filename = os.path.join(trimap_path, name + '.png')
+                target_filename = os.path.join(target_path, name + '.png')
+                I = misc.imread(input_filename)
+                I_depth = misc.imread(trimap_filename)
 
-            name = os.path.basename(names.split(".")[0])
-            input_filename = os.path.join(input_path, names)
-            trimap_filename = os.path.join(trimap_path, name + '.png')
-            target_filename = os.path.join(target_path, name + '.png')
-            I = misc.imread(input_filename)
-            I_depth = misc.imread(trimap_filename)
-            print('namemmmm: '+name+ " num "+str(i))
+                if i == 20:
+                    print('random_file: '+random_file)
 
-            I = cv2.resize(I, (360, 480));
-            I_depth = cv2.resize(I_depth, (360, 480));
-            # Stacking the image together with its depth map
-            I_temp = np.zeros((I.shape[0], I.shape[1], 4))
-            I_temp[:, :, 0:3] = I
-            I_temp[:, :, 3] = I_depth
-            I = I_temp
+                I = cv2.resize(I, (360, 480));
+                I_depth = cv2.resize(I_depth, (360, 480));
+                # Stacking the image together with its depth map
+                I_temp = np.zeros((I.shape[0], I.shape[1], 4))
+                I_temp[:, :, 0:3] = I
+                I_temp[:, :, 3] = I_depth
+                I = I_temp
 
-           
-            # Extracting random patch of width PATCH_WIDTH
-           
-            I = np.float32(I) / 255.0
+               
+                # Extracting random patch of width PATCH_WIDTH
+               
+                I = np.float32(I) / 255.0
 
-            test_data[i, :] = I
+                test_data[i, :] = I
 
-            I = misc.imread(target_filename)
-            I = cv2.resize(I, (int(360), int(480)));
-            I_temp = np.zeros((I.shape[0], I.shape[1], 4))
-            I_temp[:, :, 0:3] = I
-            I_temp[:, :, 3] = I_depth
-            I = I_temp
-            I = np.float32(I) / 255.0
+                I = misc.imread(target_filename)
+                I = cv2.resize(I, (int(360), int(480)));
+                
+                I = np.float32(I) / 255.0
 
-            test_answ[i, :] = I
-            i = i + 1
+                test_answ[i, :] = I
+                i = i + 1
 
         return test_data, test_answ
 
@@ -190,7 +191,12 @@ def main(args):
 
         test_writer.add_summary(summary, batch_idx)
         test_writer.add_summary(demo, batch_idx)
-
+        print("---------------------------------------------")
+        print(output)
+        image1_tensor= output[0]
+        print(image1_tensor.shape)
+        image1_numpy = tf.cast(image1_tensor, tf.uint8)
+        print(image1_numpy)
         print('Validation Loss: {:.8f}'.format(loss))
 
     batch_idx = 0
@@ -225,7 +231,7 @@ def main(args):
         print('load batch done')
         loss, summary = sess.run([loss_fct, summary_fct] +  optimizers, feed_dict={
             input_images: images,
-            target_images: targets})
+            target_images: targets})[0:2]
         print('load batch done 1')
         if batch_idx % train_data_update_freq == 0:
             print('{}: [{}/{} ({:.0f}%)]\tGen Loss: {:.8f}'.format(label, batch_idx, n_iter,

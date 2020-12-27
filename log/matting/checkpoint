@@ -1,0 +1,6 @@
+model_checkpoint_path: "matting.ckpt-1600"
+all_model_checkpoint_paths: "matting.ckpt-0"
+all_model_checkpoint_paths: "matting.ckpt-400"
+all_model_checkpoint_paths: "matting.ckpt-800"
+all_model_checkpoint_paths: "matting.ckpt-1200"
+all_model_checkpoint_paths: "matting.ckpt-1600"
