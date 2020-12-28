@@ -114,8 +114,8 @@ def main(args):
 
     images, targets = [], []
 
-    I = misc.imread('/Users/hiepth/Desktop/Data_Bokeh/ebb_dataset/train/original/000000009950.jpg')
-    I_depth = misc.imread('/Users/hiepth/Desktop/Data_Bokeh/ebb_dataset/train/original_depth/000000009950.png')
+    I = misc.imread('/Users/hiepth/Desktop/Data_Bokeh/ebb_dataset/train/original/000000010100.jpg')
+    I_depth = misc.imread('/Users/hiepth/Desktop/Data_Bokeh/ebb_dataset/train/original_depth/000000010100.png')
     #print('namemmmm: '+name+ " num "+str(i))
 
     I = cv2.resize(I, (360, 480));
@@ -136,7 +136,7 @@ def main(args):
 
     print(result.shape)
     image = Image.fromarray((result[0,:,:,:]*255).astype(np.uint8))
-    image.save('output_1600.jpg')
+    image.save('output_'+str(args.checkpoint)+'.jpg')
 
 
 if __name__ == '__main__':
